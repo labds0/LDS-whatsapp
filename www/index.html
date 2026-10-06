@@ -42,7 +42,7 @@
   <textarea id="nums" rows="3" placeholder="01012345678&#10;أحمد,01112345678"></textarea>
   <div class="row">
     <input id="cc" value="20" inputmode="numeric" style="max-width:90px" aria-label="كود الدولة">
-    <button onclick="addNums()">إضافة للقائمة</button>
+    <button id="b-add">إضافة للقائمة</button>
   </div>
 </div>
 
@@ -50,9 +50,9 @@
   <div class="row" style="margin:0 0 6px"><b id="cnt">العدد: 0</b></div>
   <div id="list"></div>
   <div class="row">
-    <button class="s" onclick="selAll(true)">تحديد الكل</button>
-    <button class="s" onclick="selAll(false)">إلغاء</button>
-    <button class="s" onclick="delSel()">حذف المحدد</button>
+    <button class="s" id="b-all">تحديد الكل</button>
+    <button class="s" id="b-none">إلغاء</button>
+    <button class="s" id="b-del">حذف المحدد</button>
   </div>
 </div>
 
@@ -62,26 +62,27 @@
     <label class="l">إلى</label><input id="dmax" type="number" value="15" min="3">
   </div>
   <div class="row">
-    <button onclick="send(false)">إرسال للمحدد</button>
-    <button onclick="send(true)">إرسال للكل</button>
-    <button class="r" onclick="stopSend()">إيقاف</button>
+    <button id="b-sendsel">إرسال للمحدد</button>
+    <button id="b-sendall">إرسال للكل</button>
+    <button class="r" id="b-stop">إيقاف</button>
   </div>
-  <div class="row"><button class="s" onclick="openAcc()">تفعيل خدمة الوصول (مرة واحدة)</button></div>
+  <div class="row"><button class="s" id="b-acc">تفعيل خدمة الوصول (مرة واحدة)</button></div>
   <p id="st">جاهز</p>
 </div>
 
 <script>
-const isApp = window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform();
-const WaBulk = window.Capacitor ? Capacitor.registerPlugin('WaBulk') : null;
 const $ = id => document.getElementById(id);
+function showErr(m){ const s=$('st'); if(s){ s.textContent='خطأ: '+m; s.style.color='#d32f2f'; } }
+window.onerror = (msg, src, line) => { showErr(msg + ' (سطر ' + line + ')'); };
+window.addEventListener('unhandledrejection', e => showErr((e.reason && e.reason.message) || e.reason));
 
 let contacts = [];
 let checked = new Set();
 try { contacts = JSON.parse(localStorage.getItem('contacts') || '[]'); } catch (e) {}
-$('msg').value = localStorage.getItem('message') || '';
-$('msg').addEventListener('input', () => localStorage.setItem('message', $('msg').value));
+try { $('msg').value = localStorage.getItem('message') || ''; } catch (e) {}
+$('msg').addEventListener('input', () => { try { localStorage.setItem('message', $('msg').value); } catch (e) {} });
 
-function persist(){ localStorage.setItem('contacts', JSON.stringify(contacts)); }
+function persist(){ try { localStorage.setItem('contacts', JSON.stringify(contacts)); } catch (e) { showErr(e.message); } }
 
 function normalize(raw, cc){
   let d = raw.replace(/[٠-٩]/g, c => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/\D/g, '');
@@ -105,7 +106,7 @@ function render(){
 }
 
 function addNums(){
-  const cc = $('cc').value.trim() || '20';
+  const cc = ($('cc').value.trim() || '20');
   const have = new Set(contacts.map(c => c.number));
   let add = 0, bad = 0;
   $('nums').value.split('\n').map(s => s.trim()).filter(Boolean).forEach(line => {
@@ -115,7 +116,7 @@ function addNums(){
     if (!n) bad++; else if (!have.has(n)) { have.add(n); contacts.push({name, number: n}); add++; }
   });
   persist(); render(); $('nums').value = '';
-  $('st').textContent = `أضيف ${add} | غير صالح ${bad}`;
+  $('st').style.color = ''; $('st').textContent = 'أضيف ' + add + ' | غير صالح ' + bad;
 }
 
 function selAll(v){ checked = v ? new Set(contacts.map(c => c.number)) : new Set(); render(); }
@@ -126,36 +127,63 @@ function delSel(){
   checked.clear(); persist(); render();
 }
 
+// ---- الربط مع الأزرار (قبل أي شيء متعلق بالإضافة الأصلية) ----
+$('b-add').addEventListener('click', addNums);
+$('b-all').addEventListener('click', () => selAll(true));
+$('b-none').addEventListener('click', () => selAll(false));
+$('b-del').addEventListener('click', delSel);
+$('b-sendsel').addEventListener('click', () => send(false));
+$('b-sendall').addEventListener('click', () => send(true));
+$('b-stop').addEventListener('click', () => stopSend());
+$('b-acc').addEventListener('click', () => openAcc());
+render();
+
+// ---- الإضافة الأصلية (Android) ----
+let WaBulk = null;
+let isApp = false;
+try {
+  isApp = !!(window.Capacitor && Capacitor.isNativePlatform && Capacitor.isNativePlatform());
+  if (window.Capacitor) WaBulk = Capacitor.Plugins.WaBulk || Capacitor.registerPlugin('WaBulk');
+} catch (e) { showErr(e.message); }
+
+function badge(ok, text){ $('acc').className = ok ? 'badge' : 'badge bad'; $('acc').textContent = ok ? '' : text; }
+
 async function checkAcc(){
-  if (!isApp) { $('acc').className = 'badge bad'; $('acc').textContent = 'يعمل داخل تطبيق الأندرويد فقط'; return; }
-  const r = await WaBulk.isAccessibilityEnabled();
-  $('acc').className = r.enabled ? 'badge' : 'badge bad';
-  $('acc').textContent = r.enabled ? '' : 'خدمة الوصول غير مفعلة — اضغط "تفعيل خدمة الوصول"';
-  return r.enabled;
+  if (!isApp || !WaBulk) { badge(false, 'يعمل داخل تطبيق الأندرويد فقط'); return false; }
+  try {
+    const r = await WaBulk.isAccessibilityEnabled();
+    badge(r.enabled, 'خدمة الوصول غير مفعلة — اضغط "تفعيل خدمة الوصول"');
+    return r.enabled;
+  } catch (e) { badge(false, 'الإضافة الأصلية غير متاحة: ' + (e.message || e)); return false; }
 }
 
 async function send(all){
   const message = $('msg').value.trim();
   if (!message) return alert('اكتب الرسالة أولاً');
-  if (!isApp) return alert('يعمل داخل تطبيق الأندرويد فقط');
+  if (!isApp || !WaBulk) return alert('يعمل داخل تطبيق الأندرويد فقط');
   if (!(await checkAcc())) return alert('فعّل خدمة الوصول أولاً');
   const targets = all ? contacts : contacts.filter(c => checked.has(c.number));
   if (!targets.length) return alert('لا توجد أرقام للإرسال');
-  if (!confirm(`سيتم الإرسال إلى ${targets.length} رقم. متابعة؟`)) return;
+  if (!confirm('سيتم الإرسال إلى ' + targets.length + ' رقم. متابعة؟')) return;
   try {
     await WaBulk.start({ targets, message, min: +$('dmin').value || 8, max: +$('dmax').value || 15 });
-  } catch (e) { alert('خطأ: ' + (e.message || e)); }
+  } catch (e) { showErr(e.message || e); }
 }
 
-function stopSend(){ if (isApp) WaBulk.stop(); }
-function openAcc(){ if (isApp) WaBulk.openAccessibilitySettings(); }
-
-if (isApp) {
-  WaBulk.addListener('status', s => { $('st').textContent = s.text; });
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAcc(); });
-  WaBulk.isAccessibilityEnabled().then(r => { if (r.text) $('st').textContent = r.text; });
+function stopSend(){ if (WaBulk) WaBulk.stop().catch(e => showErr(e.message)); }
+function openAcc(){
+  if (!WaBulk) return alert('يعمل داخل تطبيق الأندرويد فقط');
+  WaBulk.openAccessibilitySettings().catch(e => showErr(e.message || e));
 }
-render(); checkAcc();
+
+try {
+  if (isApp && WaBulk) {
+    WaBulk.addListener('status', s => { $('st').style.color = ''; $('st').textContent = s.text; });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) checkAcc(); });
+    WaBulk.isAccessibilityEnabled().then(r => { if (r.text) $('st').textContent = r.text; }).catch(() => {});
+  }
+} catch (e) { showErr(e.message); }
+checkAcc();
 </script>
 </body>
 </html>
