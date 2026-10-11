@@ -10,6 +10,11 @@ if "WaService" not in s:
            '<intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter>'
            '<meta-data android:name="android.accessibilityservice" android:resource="@xml/accessibility_config"/>'
            '</service>\n    </application>')
-    s = s.replace("</application>", svc, 1)
+    prov = ('<provider android:name="androidx.core.content.FileProvider" '
+            'android:authorities="${applicationId}.wabulk.fp" android:exported="false" '
+            'android:grantUriPermissions="true">'
+            '<meta-data android:name="android.support.FILE_PROVIDER_PATHS" '
+            'android:resource="@xml/wabulk_file_paths"/></provider>\n    ')
+    s = s.replace("</application>", svc.replace("</application>", prov + "</application>"), 1)
     open(p, "w", encoding="utf-8").write(s)
 print("manifest patched")
