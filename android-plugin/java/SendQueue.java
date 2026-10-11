@@ -21,6 +21,7 @@ public class SendQueue {
     public static volatile boolean waiting = false;
     public static String status = "جاهز";
     public static Listener listener = null;
+    public static volatile String app = "biz";   // biz = واتساب بيزنس ، reg = واتساب العادي
 
     private static List<String[]> targets = new ArrayList<>();
     private static String message = "";
@@ -95,7 +96,10 @@ public class SendQueue {
     }
 
     private static void openChat(Context ctx, Uri uri) {
-        String[] pkgs = {"com.whatsapp", "com.whatsapp.w4b", null};
+        // الأول المختار، وإن لم يكن مثبّتاً يجرب الآخر (الافتراضي: بيزنس أولاً ثم العادي)
+        String[] pkgs = "reg".equals(app)
+                ? new String[]{"com.whatsapp", "com.whatsapp.w4b", null}
+                : new String[]{"com.whatsapp.w4b", "com.whatsapp", null};
         for (String pkg : pkgs) {
             try {
                 Intent i = new Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
