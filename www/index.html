@@ -35,6 +35,17 @@
 <div class="card">
   <label class="l">الرسالة (استخدم {name} للاسم)</label>
   <textarea id="msg" rows="4" placeholder="اكتب رسالتك هنا..."></textarea>
+  <div class="row">
+    <button class="s" id="b-bold" style="font-weight:bold;max-width:60px">B</button>
+    <button class="s" id="b-italic" style="font-style:italic;max-width:60px">I</button>
+    <button class="s" id="b-img">📎 إرفاق صورة</button>
+    <input id="imgf" type="file" accept="image/*" style="display:none">
+  </div>
+  <div id="imgbox" style="display:none;margin-top:6px;align-items:center;gap:8px">
+    <img id="imgprev" style="max-width:90px;max-height:90px;border-radius:6px">
+    <button class="s" id="b-imgdel">إزالة الصورة</button>
+  </div>
+  <small class="l">النص بين نجمتين *هكذا* يظهر عريض في واتساب (الصورة تُرسل والنص تعليق عليها)</small>
 </div>
 
 <div class="card">
@@ -169,12 +180,52 @@ function copyNums(){
   if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, fallback); else fallback();
 }
 
+// ---- تنسيق النص (عريض/مائل بصيغة واتساب) ----
+function wrapSel(mark){
+  const t = $('msg'), a = t.selectionStart, b = t.selectionEnd, v = t.value;
+  const sel = v.slice(a, b);
+  t.value = v.slice(0, a) + mark + sel + mark + v.slice(b);
+  t.focus();
+  t.setSelectionRange(a + mark.length, b + mark.length);
+  t.dispatchEvent(new Event('input'));
+}
+
+// ---- صورة مرفقة: تُصغَّر وتُحفظ كـ base64 (JPEG) ----
+let imageB64 = '';
+function showImg(){
+  $('imgbox').style.display = imageB64 ? 'flex' : 'none';
+  if (imageB64) $('imgprev').src = 'data:image/jpeg;base64,' + imageB64;
+}
+function pickImage(file){
+  if (!file) return;
+  const url = URL.createObjectURL(file), im = new Image();
+  im.onload = () => {
+    const k = Math.min(1, 1280 / Math.max(im.width, im.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    imageB64 = c.toDataURL('image/jpeg', 0.85).split(',')[1];
+    URL.revokeObjectURL(url);
+    try { localStorage.setItem('image', imageB64); } catch (e) {}
+    showImg();
+  };
+  im.onerror = () => showErr('تعذر قراءة الصورة');
+  im.src = url;
+}
+try { imageB64 = localStorage.getItem('image') || ''; } catch (e) {}
+
 // ---- الربط مع الأزرار (قبل أي شيء متعلق بالإضافة الأصلية) ----
 $('b-add').addEventListener('click', addNums);
 $('b-all').addEventListener('click', () => selAll(true));
 $('b-none').addEventListener('click', () => selAll(false));
 $('b-del').addEventListener('click', delSel);
 $('b-copy').addEventListener('click', copyNums);
+$('b-bold').addEventListener('click', () => wrapSel('*'));
+$('b-italic').addEventListener('click', () => wrapSel('_'));
+$('b-img').addEventListener('click', () => $('imgf').click());
+$('imgf').addEventListener('change', e => { pickImage(e.target.files[0]); e.target.value = ''; });
+$('b-imgdel').addEventListener('click', () => { imageB64 = ''; try { localStorage.removeItem('image'); } catch (e) {} showImg(); });
+showImg();
 $('b-sendsel').addEventListener('click', () => send(false));
 $('b-sendall').addEventListener('click', () => send(true));
 $('b-stop').addEventListener('click', () => stopSend());
@@ -203,7 +254,7 @@ async function checkAcc(){
 
 async function send(all){
   const message = $('msg').value.trim();
-  if (!message) return alert('اكتب الرسالة أولاً');
+  if (!message && !imageB64) return alert('اكتب الرسالة أو أرفق صورة أولاً');
   if (!isApp || !WaBulk) return alert('يعمل داخل تطبيق الأندرويد فقط');
   if (!(await checkAcc())) return alert('فعّل خدمة الوصول أولاً');
   const dd = dedupe(); if (dd) { persist(); render(); $('st').textContent = 'تم حذف ' + dd + ' رقم مكرر قبل الإرسال'; }
@@ -211,7 +262,7 @@ async function send(all){
   if (!targets.length) return alert('لا توجد أرقام للإرسال');
   if (!confirm('سيتم الإرسال إلى ' + targets.length + ' رقم. متابعة؟')) return;
   try {
-    await WaBulk.start({ targets, message, app: $('wapp').value, min: +$('dmin').value || 8, max: +$('dmax').value || 15 });
+    await WaBulk.start({ targets, message, image: imageB64, app: $('wapp').value, min: +$('dmin').value || 8, max: +$('dmax').value || 15 });
   } catch (e) { showErr(e.message || e); }
 }
 
