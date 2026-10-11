@@ -34,6 +34,7 @@ public class WaBulkPlugin extends Plugin {
         try {
             JSArray arr = call.getArray("targets");
             String message = call.getString("message", "");
+            String app = call.getString("app", "biz");
             int min = call.getInt("min", 8);
             int max = call.getInt("max", 15);
             List<String[]> targets = new ArrayList<>();
@@ -45,6 +46,7 @@ public class WaBulkPlugin extends Plugin {
                 call.reject("empty");
                 return;
             }
+            SendQueue.app = app;
             SendQueue.start(getContext().getApplicationContext(), targets, message, min, max);
             call.resolve();
         } catch (Exception e) {
