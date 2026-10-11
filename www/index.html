@@ -39,7 +39,7 @@
 
 <div class="card">
   <label class="l">إضافة أرقام: رقم في كل سطر، أو الاسم,الرقم</label>
-  <textarea id="nums" rows="3" placeholder="01012345678&#10;أحمد,01112345678"></textarea>
+  <textarea id="nums" rows="3" placeholder="01012345678&#10;أحمد,01112345678&#10;@mafifi&#10;محمد,@mafifi"></textarea>
   <div class="row">
     <input id="cc" value="20" inputmode="numeric" style="max-width:90px" aria-label="كود الدولة">
     <button id="b-add">إضافة للقائمة</button>
@@ -79,12 +79,33 @@ window.addEventListener('unhandledrejection', e => showErr((e.reason && e.reason
 let contacts = [];
 let checked = new Set();
 try { contacts = JSON.parse(localStorage.getItem('contacts') || '[]'); } catch (e) {}
+
+// مفتاح المقارنة: اليوزرنيم (@name) بحروف صغيرة، والرقم بأرقامه فقط
+function ckey(v){ v = String(v); return v.startsWith('@') ? v.toLowerCase() : v.replace(/\D/g, ''); }
+// تدقيق التكرار: يحذف أي رقم مكرر تلقائياً (يُبقي أول ظهور) ويرجع عدد المحذوف
+function dedupe(){
+  const seen = new Set(); const before = contacts.length;
+  contacts = contacts.filter(c => {
+    const k = ckey(c.number);
+    if (seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+  const removed = before - contacts.length;
+  if (removed) { const keep = new Set(contacts.map(c => c.number)); checked = new Set([...checked].filter(n => keep.has(n))); }
+  return removed;
+}
+const removedOnLoad = dedupe();
 try { $('msg').value = localStorage.getItem('message') || ''; } catch (e) {}
 $('msg').addEventListener('input', () => { try { localStorage.setItem('message', $('msg').value); } catch (e) {} });
 
 function persist(){ try { localStorage.setItem('contacts', JSON.stringify(contacts)); } catch (e) { showErr(e.message); } }
 
 function normalize(raw, cc){
+  raw = raw.trim();
+  const um = raw.match(/^(?:https?:\/\/)?(?:wa\.me\/)?@?([A-Za-z0-9._]{3,35})$/);
+  if (raw.startsWith('@') || (/wa\.me\//.test(raw) && um && /[A-Za-z]/.test(um[1]))) {
+    return um && /[A-Za-z]/.test(um[1]) ? '@' + um[1].toLowerCase() : null;
+  }
   let d = raw.replace(/[٠-٩]/g, c => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/\D/g, '');
   if (d.startsWith('00')) d = d.slice(2);
   else if (d.startsWith('0')) d = cc + d.slice(1);
@@ -99,7 +120,7 @@ function render(){
     const cb = document.createElement('input'); cb.type = 'checkbox'; cb.checked = checked.has(c.number);
     cb.onchange = () => cb.checked ? checked.add(c.number) : checked.delete(c.number);
     const nm = document.createElement('span'); nm.textContent = c.name || '—';
-    const nu = document.createElement('small'); nu.textContent = '+' + c.number;
+    const nu = document.createElement('small'); nu.textContent = String(c.number).startsWith('@') ? c.number : '+' + c.number;
     row.append(cb, nm, nu); l.append(row);
   });
   $('cnt').textContent = 'العدد: ' + contacts.length;
@@ -108,15 +129,16 @@ function render(){
 function addNums(){
   const cc = ($('cc').value.trim() || '20');
   const have = new Set(contacts.map(c => c.number));
-  let add = 0, bad = 0;
+  let add = 0, bad = 0, dup = 0;
   $('nums').value.split('\n').map(s => s.trim()).filter(Boolean).forEach(line => {
     const p = line.split(/[,;\t،]/).map(s => s.trim()).filter(Boolean);
     const name = p.length > 1 ? p[0] : '';
     const n = normalize(p[p.length - 1], cc);
-    if (!n) bad++; else if (!have.has(n)) { have.add(n); contacts.push({name, number: n}); add++; }
+    if (!n) bad++; else if (have.has(n)) dup++; else { have.add(n); contacts.push({name, number: n}); add++; }
   });
+  dup += dedupe();
   persist(); render(); $('nums').value = '';
-  $('st').style.color = ''; $('st').textContent = 'أضيف ' + add + ' | غير صالح ' + bad;
+  $('st').style.color = ''; $('st').textContent = 'أضيف ' + add + ' | مكرر محذوف ' + dup + ' | غير صالح ' + bad;
 }
 
 function selAll(v){ checked = v ? new Set(contacts.map(c => c.number)) : new Set(); render(); }
@@ -136,6 +158,7 @@ $('b-sendsel').addEventListener('click', () => send(false));
 $('b-sendall').addEventListener('click', () => send(true));
 $('b-stop').addEventListener('click', () => stopSend());
 $('b-acc').addEventListener('click', () => openAcc());
+if (removedOnLoad) { persist(); $('st').textContent = 'تم حذف ' + removedOnLoad + ' رقم مكرر تلقائياً'; }
 render();
 
 // ---- الإضافة الأصلية (Android) ----
@@ -162,6 +185,7 @@ async function send(all){
   if (!message) return alert('اكتب الرسالة أولاً');
   if (!isApp || !WaBulk) return alert('يعمل داخل تطبيق الأندرويد فقط');
   if (!(await checkAcc())) return alert('فعّل خدمة الوصول أولاً');
+  const dd = dedupe(); if (dd) { persist(); render(); $('st').textContent = 'تم حذف ' + dd + ' رقم مكرر قبل الإرسال'; }
   const targets = all ? contacts : contacts.filter(c => checked.has(c.number));
   if (!targets.length) return alert('لا توجد أرقام للإرسال');
   if (!confirm('سيتم الإرسال إلى ' + targets.length + ' رقم. متابعة؟')) return;

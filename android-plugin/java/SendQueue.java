@@ -55,7 +55,9 @@ public class SendQueue {
         String[] c = targets.get(idx);
         update("(" + (idx + 1) + "/" + targets.size() + ") إرسال إلى " + (c[0].isEmpty() ? c[1] : c[0]));
         String text = message.replace("{name}", c[0]);
-        openChat(ctx, Uri.parse("https://wa.me/" + c[1] + "?text=" + Uri.encode(text)));
+        // اليوزرنيم يبدأ بـ @ ويُفتح عبر رابط wa.me/<username>؛ غيّر هذا السطر لو تغيّرت صيغة الرابط
+        String target = c[1].startsWith("@") ? c[1].substring(1) : c[1];
+        openChat(ctx, Uri.parse("https://wa.me/" + target + "?text=" + Uri.encode(text)));
         waiting = true;
         timeout = () -> {
             if (running && waiting) {      // لم يظهر زر الإرسال (رقم غير مسجل مثلاً)

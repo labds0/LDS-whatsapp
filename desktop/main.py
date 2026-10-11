@@ -34,8 +34,25 @@ def save_numbers(items):
         json.dump(items, f, ensure_ascii=False, indent=2)
 
 
+def dedupe_items(items):
+    """يحذف أي رقم مكرر (يُبقي أول ظهور) ويرجع (القائمة الجديدة، عدد المحذوف)."""
+    seen, out = set(), []
+    for it in items:
+        v = str(it.get("number", ""))
+        key = v.lower() if v.startswith("@") else re.sub(r"\D", "", v)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out, len(items) - len(out)
+
+
 def normalize(raw, country_code):
-    """يرجع الرقم بصيغة دولية بدون + ، أو None لو غير صالح."""
+    """يرجع الرقم بصيغة دولية بدون + ، أو اليوزرنيم بصيغة @name ، أو None لو غير صالح."""
+    raw = raw.strip()
+    m = re.fullmatch(r"(?:https?://)?(?:wa\.me/)?@?([A-Za-z0-9._]{3,35})", raw)
+    if raw.startswith("@") or (m and "wa.me/" in raw and re.search(r"[A-Za-z]", m.group(1))):
+        return "@" + m.group(1).lower() if m and re.search(r"[A-Za-z]", m.group(1)) else None
     digits = re.sub(r"\D", "", raw)
     if digits.startswith("00"):
         digits = digits[2:]
@@ -64,9 +81,11 @@ class Sender:
         )
 
     def send(self, number, message):
-        self.driver.get(
-            f"https://web.whatsapp.com/send?phone={number}&text={quote(message)}"
-        )
+        if number.startswith("@"):  # يوزرنيم
+            url = f"https://wa.me/{number[1:]}?text={quote(message)}"
+        else:
+            url = f"https://web.whatsapp.com/send?phone={number}&text={quote(message)}"
+        self.driver.get(url)
         box = WebDriverWait(self.driver, 45).until(
             EC.presence_of_element_located(
                 (By.XPATH, '//footer//div[@contenteditable="true"]')
@@ -92,6 +111,9 @@ class App(tk.Tk):
         self.title("مرسل واتساب الجماعي")
         self.geometry("760x680")
         self.items = load_numbers()  # [{"number": "...", "name": "..."}]
+        self.items, _removed = dedupe_items(self.items)
+        if _removed:
+            save_numbers(self.items)
         self.sender = Sender()
         self.stop_flag = False
         self.sending = False
@@ -198,6 +220,7 @@ class App(tk.Tk):
         cc = self.cc.get().strip() or "20"
         existing = {it["number"] for it in self.items}
         added = 0
+        dups = 0
         with open(path, "r", encoding="utf-8-sig") as f:
             for line in f:
                 parts = [p.strip() for p in re.split(r"[,;\t]", line) if p.strip()]
@@ -205,13 +228,17 @@ class App(tk.Tk):
                     continue
                 num_raw, name = (parts[0], "") if len(parts) == 1 else (parts[-1], parts[0])
                 n = normalize(num_raw, cc)
-                if n and n not in existing:
+                if n and n in existing:
+                    dups += 1
+                elif n:
                     self.items.append({"name": name, "number": n})
                     existing.add(n)
                     added += 1
+        self.items, extra = dedupe_items(self.items)
+        dups += extra
         save_numbers(self.items)
         self._refresh()
-        messagebox.showinfo("تم", f"تمت إضافة {added} رقم")
+        messagebox.showinfo("تم", f"تمت إضافة {added} رقم\nتم حذف {dups} رقم مكرر تلقائياً")
 
     def select_all(self):
         self.tree.selection_set(self.tree.get_children())
@@ -236,6 +263,7 @@ class App(tk.Tk):
             targets = list(self.items)
         else:
             targets = [self.items[int(i)] for i in self.tree.selection()]
+        targets, _ = dedupe_items(targets)  # لا يُرسل لنفس الرقم مرتين
         if not targets:
             messagebox.showwarning("خطأ", "لا توجد أرقام للإرسال")
             return
