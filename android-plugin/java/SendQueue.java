@@ -6,6 +6,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Handler;
+import android.util.Base64;
+import androidx.core.content.FileProvider;
+import java.io.File;
+import java.io.FileOutputStream;
 import android.os.Looper;
 
 import java.util.ArrayList;
@@ -29,6 +33,19 @@ public class SendQueue {
     private static final Handler handler = new Handler(Looper.getMainLooper());
     private static Runnable timeout;
     private static final Random rnd = new Random();
+
+    private static Uri imageUri = null;
+
+    /** يحفظ الصورة (base64) في الكاش ويجهز رابطها للمشاركة. فارغ = بدون صورة. */
+    public static void setImage(Context ctx, String b64) {
+        imageUri = null;
+        if (b64 == null || b64.isEmpty()) return;
+        try {
+            File f = new File(ctx.getCacheDir(), "wabulk_img.jpg");
+            try (FileOutputStream o = new FileOutputStream(f)) { o.write(Base64.decode(b64, Base64.DEFAULT)); }
+            imageUri = FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".wabulk.fp", f);
+        } catch (Exception e) { imageUri = null; }
+    }
 
     private static void update(String s) {
         status = s;
@@ -58,7 +75,11 @@ public class SendQueue {
         String text = message.replace("{name}", c[0]);
         // اليوزرنيم يبدأ بـ @ ويُفتح عبر رابط wa.me/<username>؛ غيّر هذا السطر لو تغيّرت صيغة الرابط
         String target = c[1].startsWith("@") ? c[1].substring(1) : c[1];
-        openChat(ctx, Uri.parse("https://wa.me/" + target + "?text=" + Uri.encode(text)));
+        if (imageUri != null && !c[1].startsWith("@")) {
+            openChatWithImage(ctx, c[1], text);   // صورة + النص كتعليق
+        } else {
+            openChat(ctx, Uri.parse("https://wa.me/" + target + "?text=" + Uri.encode(text)));
+        }
         waiting = true;
         timeout = () -> {
             if (running && waiting) {      // لم يظهر زر الإرسال (رقم غير مسجل مثلاً)
@@ -93,6 +114,27 @@ public class SendQueue {
         Intent i = new Intent(ctx, MainActivity.class);
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
         ctx.startActivity(i);
+    }
+
+    /** يفتح محادثة الرقم مباشرة مع الصورة (jid) والنص تعليقاً عليها. */
+    private static void openChatWithImage(Context ctx, String number, String text) {
+        String[] pkgs = "reg".equals(app)
+                ? new String[]{"com.whatsapp", "com.whatsapp.w4b"}
+                : new String[]{"com.whatsapp.w4b", "com.whatsapp"};
+        for (String pkg : pkgs) {
+            try {
+                Intent i = new Intent(Intent.ACTION_SEND);
+                i.setType("image/jpeg");
+                i.putExtra(Intent.EXTRA_STREAM, imageUri);
+                if (!text.isEmpty()) i.putExtra(Intent.EXTRA_TEXT, text);
+                i.putExtra("jid", number + "@s.whatsapp.net");
+                i.setPackage(pkg);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                ctx.grantUriPermission(pkg, imageUri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                ctx.startActivity(i);
+                return;
+            } catch (ActivityNotFoundException ignored) { }
+        }
     }
 
     private static void openChat(Context ctx, Uri uri) {
