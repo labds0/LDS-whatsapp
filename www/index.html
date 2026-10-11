@@ -53,6 +53,7 @@
     <button class="s" id="b-all">تحديد الكل</button>
     <button class="s" id="b-none">إلغاء</button>
     <button class="s" id="b-del">حذف المحدد</button>
+    <button class="s" id="b-copy">نسخ الأرقام</button>
   </div>
 </div>
 
@@ -60,6 +61,10 @@
   <div class="row" style="margin:0">
     <label class="l">تأخير (ثانية) من</label><input id="dmin" type="number" value="8" min="3">
     <label class="l">إلى</label><input id="dmax" type="number" value="15" min="3">
+  </div>
+  <div class="row" style="margin:6px 0">
+    <label class="l">الإرسال من</label>
+    <select id="wapp"><option value="biz">واتساب بيزنس</option><option value="reg">واتساب العادي</option></select>
   </div>
   <div class="row">
     <button id="b-sendsel">إرسال للمحدد</button>
@@ -95,7 +100,8 @@ function dedupe(){
   return removed;
 }
 const removedOnLoad = dedupe();
-try { $('msg').value = localStorage.getItem('message') || ''; } catch (e) {}
+try { $('msg').value = localStorage.getItem('message') || ''; $('wapp').value = localStorage.getItem('wapp') || 'biz'; } catch (e) {}
+$('wapp').addEventListener('change', () => { try { localStorage.setItem('wapp', $('wapp').value); } catch (e) {} });
 $('msg').addEventListener('input', () => { try { localStorage.setItem('message', $('msg').value); } catch (e) {} });
 
 function persist(){ try { localStorage.setItem('contacts', JSON.stringify(contacts)); } catch (e) { showErr(e.message); } }
@@ -149,11 +155,26 @@ function delSel(){
   checked.clear(); persist(); render();
 }
 
+// نسخ المحدد (أو الكل لو لا يوجد تحديد) بصيغة الاسم,الرقم سطر لكل جهة اتصال
+function copyNums(){
+  const src = checked.size ? contacts.filter(c => checked.has(c.number)) : contacts;
+  if (!src.length) return;
+  const txt = src.map(c => (c.name ? c.name + ',' : '') + c.number).join('\n');
+  const done = () => { $('st').style.color = ''; $('st').textContent = 'تم نسخ ' + src.length + ' رقم'; };
+  const fallback = () => {
+    const t = document.createElement('textarea'); t.value = txt; document.body.append(t); t.select();
+    try { document.execCommand('copy'); done(); } catch (e) { showErr('تعذر النسخ'); }
+    t.remove();
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(done, fallback); else fallback();
+}
+
 // ---- الربط مع الأزرار (قبل أي شيء متعلق بالإضافة الأصلية) ----
 $('b-add').addEventListener('click', addNums);
 $('b-all').addEventListener('click', () => selAll(true));
 $('b-none').addEventListener('click', () => selAll(false));
 $('b-del').addEventListener('click', delSel);
+$('b-copy').addEventListener('click', copyNums);
 $('b-sendsel').addEventListener('click', () => send(false));
 $('b-sendall').addEventListener('click', () => send(true));
 $('b-stop').addEventListener('click', () => stopSend());
@@ -190,7 +211,7 @@ async function send(all){
   if (!targets.length) return alert('لا توجد أرقام للإرسال');
   if (!confirm('سيتم الإرسال إلى ' + targets.length + ' رقم. متابعة؟')) return;
   try {
-    await WaBulk.start({ targets, message, min: +$('dmin').value || 8, max: +$('dmax').value || 15 });
+    await WaBulk.start({ targets, message, app: $('wapp').value, min: +$('dmin').value || 8, max: +$('dmax').value || 15 });
   } catch (e) { showErr(e.message || e); }
 }
 
